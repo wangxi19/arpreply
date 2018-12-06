@@ -19,23 +19,70 @@
 #include <linux/if_ether.h>
 #include <linux/if_arp.h>
 
+#include <vector>
+#include <string>
+#include <map>
+
 #define HW_ADDR_LENGTH 6
 
 void usage() {
     fprintf(stdout, "arpreply version 1.0, release date: 2018-12-06\n\n"
-            //"-i             interface(default: )\n"
-            "-h              display help\n"
-            "-rti            reply to ip address\n"
-            "-rqi            ip address that using to reply\n"
-            "-rqm            mac address that using to reply\n"
-            "\n"
-            "example: arpreply -rti 192.168.1.123 -rqi 192.168.1.1 -rqm 00:00:00:00:00:00\n"
-            "just work in ipv4 networking\n"
-            "");
+                    "Usage: arpreply -h | -list | [-i interfacename] -rti ipaddr -rqi ipaddr [-rqm macaddr]\n"
+                    "-list           list all interfaces\n"
+                    "-i              specify outgoing interface\n"
+                    "-h              display help\n"
+                    "-rti            reply to ip address\n"
+                    "-rqi            ip address that using to reply\n"
+                    "-rqm            mac address that using to reply\n"
+                    "\n"
+                    "example: arpreply -rti 192.168.1.123 -rqi 192.168.1.1 -rqm 00:00:00:00:00:00\n"
+                    "just work in ipv4 networking\n"
+                    "");
 }
 
-void getIpAddr()
+std::vector<std::string> getCmdOutput(const char *__command, const char *__modes = "r") {
+
+    std::vector<std::string> result;
+    FILE *fp;
+    char path[1024];
+    /* Open the command for reading. */
+    fp = popen(__command, __modes);
+    if (fp == NULL) {
+        printf("Failed to run command\n" );
+        return result;
+    }
+
+
+    /* Read the output a line at a time - output it. */
+    while (fgets(path, sizeof(path)-1, fp) != NULL) {
+        result.push_back(std::string(path));
+    }
+
+    pclose(fp);
+    return result;
+}
+
+std::string getARPReplyMAC(int fd, const unsigned char* ipaddr) {
+    //send arp request
+
+    //receive arp response
+
+    return std::string();
+}
+
+bool isInterfaceOnline(int fd, const char* interface) {
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+    strcpy(ifr.ifr_name, interface);
+    if (ioctl(fd, SIOCGIFFLAGS, &ifr) < 0) {
+        perror("SIOCGIFFLAGS");
+    }
+    return !!(ifr.ifr_flags | IFF_RUNNING);
+}
+
+void getIpAddr(int fd)
 {
+    std::map<std::string, std::string> ipMapMac;
     struct ifaddrs * ifAddrStruct=NULL;
     struct ifaddrs * ifa=NULL;
     void * tmpAddrPtr=NULL;
@@ -52,18 +99,21 @@ void getIpAddr()
             char addressBuffer[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
             printf("%s IP Address %s\n", ifa->ifa_name, addressBuffer);
-        } else if (ifa->ifa_addr->sa_family == AF_INET6) { // check it is IP6
+            printf("status: %d\n", isInterfaceOnline(fd, ifa->ifa_name));
+        } else if (ifa->ifa_addr->sa_family == AF_INET6) {
+#ifdef IPV6
+            // check it is IP6
             // is a valid IP6 Address
             tmpAddrPtr=&((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr;
             char addressBuffer[INET6_ADDRSTRLEN];
             inet_ntop(AF_INET6, tmpAddrPtr, addressBuffer, INET6_ADDRSTRLEN);
-            printf("%s IP Address %s\n", ifa->ifa_name, addressBuffer);
+#endif
         }
     }
     if (ifAddrStruct!=NULL) freeifaddrs(ifAddrStruct);
 }
 int main(int argc, char* argv[]) {
-    getIpAddr();
+    getIpAddr(0);
     return 0;
     if (argc == 1) {
         usage();
