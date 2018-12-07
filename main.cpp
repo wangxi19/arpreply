@@ -76,11 +76,11 @@ struct IPSock {
 
 void usage() {
     fprintf(stdout, "arpreply version 1.0, release date: 2018-12-06\n\n"
-                    "Usage: arpreply -h | -list | [-i interfacename] [-itval n] -rti ipaddr -rqi ipaddr [-rqm macaddr] [-q]\n"
+                    "Usage: arpreply --help | -list | [-i interfacename] [-itval n] -rti ipaddr -rqi ipaddr [-rqm macaddr] [-q]\n"
                     "-list           list all interfaces\n"
                     "-i              specify outgoing interface\n"
                     "-itval          specify the interval seconds between two sending (default: 1)\n"
-                    "-h              display help\n"
+                    "--help          display help\n"
                     "-rti            reply to ip address\n"
                     "-rqi            ip address that using to reply\n"
                     "-rqm            mac address that using to reply\n"

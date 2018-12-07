@@ -5,11 +5,11 @@ this is a arpspoof tool on linux, type `arpreply --help` to see usage
 ```
 arpreply version 1.0, release date: 2018-12-06
 
-Usage: arpreply -h | -list | [-i interfacename] [-itval n] -rti ipaddr -rqi ipaddr [-rqm macaddr] [-q]
+Usage: arpreply --help | -list | [-i interfacename] [-itval n] -rti ipaddr -rqi ipaddr [-rqm macaddr] [-q]
 -list           list all interfaces
 -i              specify outgoing interface
 -itval          specify the interval seconds between two sending (default: 1)
--h              display help
+--help          display help
 -rti            reply to ip address
 -rqi            ip address that using to reply
 -rqm            mac address that using to reply
