@@ -226,7 +226,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (argc == 2) {
-        if (!memcmp("-h", argv[1], 2)) {
+        if (!memcmp("--help", argv[1], 6)) {
             usage();
             exit(0);
         } else if (!memcmp("-list", argv[1], 5)) {
