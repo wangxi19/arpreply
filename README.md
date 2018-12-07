@@ -1,4 +1,4 @@
-# Arpspoof
+# Arpreply
 this is a arpspoof tool on linux, type `arpreply --help` to see usage
 
 # Usage
