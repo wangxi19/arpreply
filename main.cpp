@@ -25,6 +25,7 @@
 #include <regex>
 
 #define HW_ADDR_LENGTH 6
+#define IPV4_ADDR_LENGTH 4
 
 struct ARPHeader
 {
@@ -74,6 +75,15 @@ struct IPSock {
 
 } ipSock;
 
+template <typename T>
+bool isEmpty(const T p, int c) {
+    for (int i = 0; i < c; i++) {
+        if ('\0' != p[i]) return false;
+    }
+
+    return true;
+}
+
 void usage() {
     fprintf(stdout, "arpreply version 1.0, release date: 2018-12-06\n\n"
                     "Usage: arpreply --help | -list | [-i interfacename] [-itval n] -rti ipaddr -rqi ipaddr [-rqm macaddr] [-q]\n"
@@ -115,30 +125,112 @@ std::vector<std::string> getCmdOutput(const char *__command, const char *__modes
 
 
 //to do
-std::string getARPReplyMAC(int fd, const unsigned char* ipaddr) {
+std::string getARPReplyMAC(int fd, const char* interfacename, const char* ipaddr) {
     //send arp request
-    unsigned char buf[sizeof(MACHeader)]{'\0'};
-    //    {
-    //        //construct arp request
-    //        MACHeader &pMAC = (MACHeader&)buf;
-    //        memset(pMAC.destMACAddr, 0xff, sizeof(pMAC.destMACAddr));
-    //        for (int idx = 0; idx < HW_ADDR_LENGTH; idx++) {
-    //            *(pMAC.srcMACAddr + idx) = *(ifreq.ifr_hwaddr.sa_data + idx);
-    //            *(pMAC.arpHeader.SenderMAC + idx) = *(ifreq.ifr_hwaddr.sa_data + idx);
-    //        }
+    MACHeader arpReq;
+    //construct arp request
+    memset(arpReq.destMACAddr, 0xff, sizeof(arpReq.destMACAddr));
+    memset(arpReq.arpHeader.TargetMAC, 0xff, sizeof(arpReq.arpHeader.TargetMAC));
+    struct ifreq ifreq;
+    memset(ifreq.ifr_name, '\0', sizeof(ifreq.ifr_name));
+    strcpy(ifreq.ifr_name, interfacename);
 
-    //        pMAC.upperType = htons(0x0806);
-    //        pMAC.arpHeader.HWType = htons(0x0001);
-    //        pMAC.arpHeader.ProcType = htons(0x0800);
-    //        pMAC.arpHeader.HWSize = 6;
-    //        pMAC.arpHeader.ProcSize = 4;
-    //        pMAC.arpHeader.Opcode = htons(0x0001);
-    //        unsigned char sendrIP[4] = {0, 0, 0, 0};
-    //        unsigned char targetIP[4] = {0, 0, 0, 0};
-    //        memcpy(pMAC.arpHeader.SenderIP, sendrIP, 4);
-    //        memcpy(pMAC.arpHeader.TargetIP, targetIP, 4);
-    //    }
+    if (-1 == ioctl(fd, SIOCGIFHWADDR, &ifreq)) {
+        perror("SIOCGIFHWADDR");
+        exit(1);
+    }
 
+    for (int idx = 0; idx < HW_ADDR_LENGTH; idx++) {
+        *(arpReq.srcMACAddr + idx) = *(ifreq.ifr_hwaddr.sa_data + idx);
+        *(arpReq.arpHeader.SenderMAC + idx) = *(ifreq.ifr_hwaddr.sa_data + idx);
+    }
+
+    struct ifaddrs* ifaddrs{nullptr};
+    if (-1 == getifaddrs(&ifaddrs) || nullptr == ifaddrs) {
+        perror("getifaddrs");
+        exit(1);
+    }
+
+
+    struct ifaddrs* oneifaddr = ifaddrs;
+    while (nullptr != oneifaddr) {
+        if (!memcmp(oneifaddr->ifa_name, interfacename, strlen(oneifaddr->ifa_name))) {
+            struct sockaddr* ifa_addr = oneifaddr->ifa_addr;
+            if (ifa_addr->sa_family == AF_INET) {
+                void* tmpaddr = &((struct sockaddr_in*)ifa_addr)->sin_addr;
+                char addressBuffer[INET_ADDRSTRLEN]{'\0'};
+                inet_ntop(AF_INET, tmpaddr, addressBuffer, INET_ADDRSTRLEN);
+                memcpy(arpReq.arpHeader.SenderIP,(void*)&((struct sockaddr_in *)ifa_addr)->sin_addr, IPV4_ADDR_LENGTH);
+                break;
+            }
+        }
+        oneifaddr = oneifaddr->ifa_next;
+    }
+
+    freeifaddrs(ifaddrs);
+
+    if (isEmpty(arpReq.arpHeader.SenderIP, sizeof(arpReq.arpHeader.SenderIP))) {
+        fprintf(stdout, "Can not to found %s's ipv4 addr", interfacename);
+        exit(1);
+    }
+
+    arpReq.upperType = htons(0x0806);
+    arpReq.arpHeader.HWType = htons(0x0001);
+    arpReq.arpHeader.ProcType = htons(0x0800);
+    arpReq.arpHeader.HWSize = 6;
+    arpReq.arpHeader.ProcSize = 4;
+    arpReq.arpHeader.Opcode = htons(0x0001);
+    in_addr_t targetIP = inet_addr(ipaddr);
+    memcpy(arpReq.arpHeader.TargetIP, (void*)(&targetIP), IPV4_ADDR_LENGTH);
+
+
+
+    struct sockaddr_ll sockAddr;
+    sockAddr.sll_family = AF_PACKET;
+    sockAddr.sll_protocol = htons(ETH_P_ARP);
+    if (-1 == ioctl(fd, SIOCGIFINDEX, &ifreq)) {
+        perror("SIOCGIFINDEX");
+        exit(1);
+    }
+
+    sockAddr.sll_ifindex = ifreq.ifr_ifindex;
+    sockAddr.sll_hatype = htons(ARPHRD_ETHER);
+    sockAddr.sll_pkttype = PACKET_BROADCAST;
+    sockAddr.sll_halen = HW_ADDR_LENGTH;
+    memset(sockAddr.sll_addr + HW_ADDR_LENGTH, '\0', 2);
+
+    memcpy(sockAddr.sll_addr, arpReq.arpHeader.SenderIP, sizeof(arpReq.arpHeader.SenderIP));
+
+    if (-1 == sendto(fd, (void*)(&arpReq), sizeof(arpReq), 0, (struct sockaddr *)(&sockAddr), sizeof(sockAddr))) {
+        perror("sendto");
+        exit(-1);
+    }
+
+    unsigned char buf[60]{'\0'};
+    for (;;) {
+        struct sockaddr sockAddr;
+        socklen_t len;
+        if (-1 == recvfrom(fd, (void*)(&buf), sizeof(buf), 0, (struct sockaddr *)(&sockAddr), &len)) {
+            perror("recvfrom");
+            exit(-1);
+        }
+
+        MACHeader &arprep = (MACHeader &)buf;
+        if (ntohs(arprep.upperType) == 0x0806 && ntohs(arprep.arpHeader.Opcode) == 0x0002) {
+
+            char addressBuffer[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, (void*)(&arprep.arpHeader.SenderIP), addressBuffer, INET_ADDRSTRLEN);
+
+            fprintf(stdout, "mac: %02x:%02x:%02x:%02x:%02x:%02x, ip: %s\n",
+                    arprep.arpHeader.SenderMAC[0],
+                    arprep.arpHeader.SenderMAC[1],
+                    arprep.arpHeader.SenderMAC[2],
+                    arprep.arpHeader.SenderMAC[3],
+                    arprep.arpHeader.SenderMAC[4],
+                    arprep.arpHeader.SenderMAC[5],
+                    addressBuffer);
+        }
+    }
     //receive arp response
 
     return std::string();
@@ -154,19 +246,10 @@ bool isInterfaceOnline(int fd, const char* interface) {
     return !!(ifr.ifr_flags | IFF_RUNNING);
 }
 
-template <typename T>
-bool isEmpty(const T p, int c) {
-    for (int i = 0; i < c; i++) {
-        if ('\0' != p[i]) return false;
-    }
-
-    return true;
-}
-
 void listInterfaces() {
-    struct ifaddrs * ifAddrStruct{NULL};
-    struct ifaddrs * ifa{NULL};
-    void * tmpAddrPtr{NULL};
+    struct ifaddrs * ifAddrStruct{nullptr};
+    struct ifaddrs * ifa{nullptr};
+    void * tmpAddrPtr{nullptr};
 
     getifaddrs(&ifAddrStruct);
 
@@ -183,7 +266,7 @@ void listInterfaces() {
         }
         if (ifa->ifa_addr->sa_family == AF_INET) { // check it is IP4
             // is a valid IP4 Address
-            tmpAddrPtr=&((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
+            tmpAddrPtr = &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
             char addressBuffer[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
             struct ifreq ifreq;
@@ -389,7 +472,7 @@ int main(int argc, char* argv[]) {
 
     if (isEmpty(rtm, sizeof(rtm))) {
         //to do: get mac address through to send arp request and receive the response
-
+//        getARPReplyMAC(ipSock.fdSock, iInterfaceName, rti);
         if (isEmpty(rtm, sizeof(rtm))) {
             fprintf(stdout, "Can not found %s mac address from arp cache, Please try to ping %s firstly\n", rti, rti);
             exit(1);
